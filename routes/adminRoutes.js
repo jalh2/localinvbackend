@@ -1,6 +1,6 @@
 const express = require('express')
 const router = express.Router()
-const { listUsers, getUser, updateUser, platformOverview } = require('../controllers/adminController')
+const { listUsers, getUser, updateUser, upsertUserStore, platformOverview } = require('../controllers/adminController')
 const { overview: userStatsOverview } = require('../controllers/statsController')
 const { requireAuth, requireRole } = require('../middleware/auth')
 
@@ -10,6 +10,7 @@ router.get('/overview', platformOverview)
 router.get('/users', listUsers)
 router.get('/users/:id', getUser)
 router.put('/users/:id', updateUser)
+router.put('/users/:id/store', upsertUserStore)
 
 // Stats for a specific user (admin views regular user data).
 // statsController.overview already supports ?userId= when caller is admin.

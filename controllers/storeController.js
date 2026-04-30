@@ -30,6 +30,8 @@ const createStore = async (req, res) => {
   try {
     const { name, description, location } = req.body
     if (!name) return res.status(400).json({ message: 'Name is required' })
+    const existingStores = await StoreModel.findAll({ userId: ownerId(req) })
+    if (existingStores.length > 0) return res.status(400).json({ message: 'This user already has a store' })
     const store = await StoreModel.create({
       userId: ownerId(req),
       name,

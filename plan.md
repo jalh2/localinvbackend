@@ -265,6 +265,99 @@ localinv/
 - [ ] `app/sales/new.jsx` – record a sale (selling price prefilled from product).
 - [ ] `app/stores/new.jsx`, `app/stores/[id].jsx`.
 
+## Admin Dashboard (Web React App – `localinventory/admin`)
+
+Web-only React app for admins to monitor every account on the platform and create regular user accounts. Mirrors the architectural patterns of `ehcerex/frontend`.
+
+### Stack
+- Create React App (react-scripts), JavaScript.
+- React Router DOM v7.
+- `styled-components` with separate `*.styles.js` files (per the user's preference).
+- `react-icons` for iconography.
+- `localforage` for persisting the signed-in admin between page reloads (richer than localStorage).
+- `date-fns` for date formatting.
+- `react-loader-spinner` for loading states.
+
+### Folder Layout (mirrors `ehcerex/frontend/src`)
+```
+admin/
+  src/
+    App.js                       routes + ThemeProvider + AuthProvider
+    index.js                     CRA bootstrap
+    styles/
+      Theme.js                   color palette, fonts, spacing
+      GlobalStyles.js            reset + font import
+    utils/
+      api.js                     fetch wrapper, sends x-user-id / x-user-role
+      money.js                   shared currency formatter
+    contexts/
+      AuthContext.js             admin-only auth, persists in localforage
+    hooks/
+      (room for shared hooks)
+    components/
+      LoadingSpinner.js
+      Toast / shared bits as needed
+    layouts/
+      AdminLayout.js             sidebar + main content + auth gate
+    pages/
+      Admin/
+        Login.js                 admin login (rejects non-admin role)
+        Dashboard.js             platform overview cards
+        ManageUsers.js           list users + create regular users + activate/deactivate
+        UserDetail.js            drill-down: stats, stores, products, sales, purchases
+        AllStores.js             list stores across all users
+        StoreDetail.js           store-scoped products & sales
+        styles/
+          AdminStyles.js         shared styled components for admin pages
+```
+
+### Branding
+The Local Inventory admin uses its **own palette** (not the gold/black of Ehcerex) so the two products feel distinct. Primary teal `#0F766E` to match the Expo app, with slate neutrals and a warm accent for highlights.
+
+### Auth Model
+- Backend middleware is relaxed; identity comes from `x-user-id` / `x-user-role` headers.
+- `utils/api.js` reads the cached admin user from localforage and attaches the headers on every request.
+- `Login.js` calls `POST /api/users/login`, rejects accounts whose `role !== 'admin'`, then persists the user.
+- The admin can create regular accounts via `POST /api/users/register` (the existing endpoint always assigns `role: 'user'`, which is exactly what we want).
+- `PUT /api/admin/users/:id` is used to activate/deactivate or change role.
+
+### Pages
+
+| Page | Route | What it shows |
+|------|-------|---------------|
+| Login | `/admin/login` | Username + password form |
+| Dashboard | `/admin` | Platform totals from `GET /api/admin/overview` |
+| Manage Users | `/admin/users` | `GET /api/admin/users` – with create/activate/deactivate |
+| User Detail | `/admin/users/:id` | `GET /api/admin/users/:id`, `GET /api/admin/users/:id/stats`, plus `GET /api/products?userId=` `…/purchases?userId=` `…/sales?userId=` |
+| All Stores | `/admin/stores` | Aggregated stores across all users (one fetch per user → flatten) |
+| Store Detail | `/admin/stores/:id` | Store info + its products + its sales (filtered client-side) |
+
+### Implementation Phases
+
+#### Phase A1 – Foundation
+- [ ] `styles/Theme.js`, `styles/GlobalStyles.js`.
+- [ ] `utils/api.js` (sends `x-user-id` / `x-user-role` from cached admin).
+- [ ] `contexts/AuthContext.js` (admin-only gate).
+- [ ] `components/LoadingSpinner.js`.
+
+#### Phase A2 – Layout & Auth
+- [ ] `pages/Admin/styles/AdminStyles.js`.
+- [ ] `layouts/AdminLayout.js` (sidebar, route gating, logout).
+- [ ] `pages/Admin/Login.js`.
+- [ ] Wire `App.js` with the routes above.
+
+#### Phase A3 – User & Store Monitoring
+- [ ] `pages/Admin/Dashboard.js` (platform overview).
+- [ ] `pages/Admin/ManageUsers.js` (list + create + activate/deactivate + role).
+- [ ] `pages/Admin/UserDetail.js` (full drill-down).
+- [ ] `pages/Admin/AllStores.js`.
+- [ ] `pages/Admin/StoreDetail.js`.
+
+#### Phase A4 – Polish (later)
+- [ ] Date filters on user detail (today/month/year/custom range).
+- [ ] Export to CSV / PDF (jspdf-autotable already installed).
+- [ ] Search & sort on tables.
+
 #### Phase F4 – Polish
 - [ ] Date filters (day / month / year) on dashboard, inventory stats, sales list.
 - [ ] Pending-sync badges on records waiting to be synced.

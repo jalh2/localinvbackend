@@ -1,4 +1,5 @@
 const UserModel = require('../models/userModel')
+const StoreModel = require('../models/storeModel')
 const { hashPassword, comparePassword } = require('../utils/encryption')
 const { isCurrency } = require('../utils/currency')
 
@@ -10,8 +11,9 @@ const sanitize = (user) => {
 
 const register = async (req, res) => {
   try {
-    const { username, password, displayName, phone } = req.body
+    const { username, password, displayName, phone, storeName, storeLocation, storeDescription } = req.body
     if (!username || !password) return res.status(400).json({ message: 'Username and password required' })
+    if (!storeName || !storeName.trim()) return res.status(400).json({ message: 'Store name is required' })
 
     const existing = await UserModel.findOne('username', username)
     if (existing) return res.status(400).json({ message: 'Username already exists' })
@@ -23,6 +25,13 @@ const register = async (req, res) => {
       displayName: displayName || username,
       phone: phone || '',
       isActive: true
+    })
+
+    await StoreModel.create({
+      userId: user.id,
+      name: storeName.trim(),
+      location: storeLocation || '',
+      description: storeDescription || ''
     })
 
     req.session.user = { id: user.id, username: user.username, role: user.role }
