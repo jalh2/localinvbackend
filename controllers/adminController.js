@@ -20,11 +20,14 @@ const getUser = async (req, res) => {
   try {
     const user = await UserModel.findById(req.params.id)
     if (!user) return res.status(404).json({ message: 'User not found' })
-    const [stores, products] = await Promise.all([
-      StoreModel.findAll({ userId: user.id }),
-      ProductModel.findAll({ userId: user.id })
+    const effectiveUserId = (user.storeRole === 'employee' && user.ownerUserId) ? user.ownerUserId : user.id
+    const [stores, products, allUsers] = await Promise.all([
+      StoreModel.findAll({ userId: effectiveUserId }),
+      ProductModel.findAll({ userId: effectiveUserId }),
+      user.storeRole === 'owner' ? UserModel.findAll() : Promise.resolve([])
     ])
-    res.json({ ...sanitize(user), stores, productCount: products.length })
+    const employees = allUsers.filter(u => u.storeRole === 'employee' && u.ownerUserId === user.id)
+    res.json({ ...sanitize(user), stores, productCount: products.length, employees: employees.map(sanitize) })
   } catch (e) {
     res.status(500).json({ message: 'Server error' })
   }
@@ -32,13 +35,18 @@ const getUser = async (req, res) => {
 
 const updateUser = async (req, res) => {
   try {
-    const { isActive, role, displayName, phone, password, baseCurrency, exchangeRateUsdToLrd } = req.body
+    const { isActive, role, storeRole, ownerUserId, displayName, phone, password, baseCurrency, exchangeRateUsdToLrd } = req.body
     const data = {}
     if (isActive !== undefined) data.isActive = isActive
     if (role !== undefined) {
       if (!['admin', 'user'].includes(role)) return res.status(400).json({ message: 'Invalid role' })
       data.role = role
     }
+    if (storeRole !== undefined) {
+      if (!['owner', 'employee'].includes(storeRole)) return res.status(400).json({ message: 'Invalid storeRole' })
+      data.storeRole = storeRole
+    }
+    if (ownerUserId !== undefined) data.ownerUserId = ownerUserId || null
     if (displayName !== undefined) data.displayName = displayName
     if (phone !== undefined) data.phone = phone
     if (password) data.password = hashPassword(password)
@@ -63,7 +71,7 @@ const upsertUserStore = async (req, res) => {
   try {
     const user = await UserModel.findById(req.params.id)
     if (!user) return res.status(404).json({ message: 'User not found' })
-    if (user.role !== 'user') return res.status(400).json({ message: 'Only regular users can have stores' })
+    if (user.role !== 'user' || user.storeRole === 'employee') return res.status(400).json({ message: 'Only store owners can have stores' })
 
     const { name, description, location } = req.body
     if (!name || !name.trim()) return res.status(400).json({ message: 'Store name is required' })

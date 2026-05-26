@@ -1,27 +1,18 @@
 const { db } = require('../config')
 
-const collection = db.collection('users')
+const collection = db.collection('expenses')
 
 const defaults = {
-  username: '',
-  password: '',
-  role: 'user',
-  storeRole: 'owner',
-  ownerUserId: null,
-  displayName: '',
-  phone: '',
-  isActive: true,
-  exchangeRateUsdToLrd: 180,
-  baseCurrency: 'LRD',
+  userId: '',
+  storeId: '',
+  description: '',
+  amount: 0,
+  currency: 'LRD',
+  category: '',
+  note: '',
+  occurredAt: null,
   createdAt: null,
   updatedAt: null
-}
-
-const findOne = async (field, value) => {
-  const snapshot = await collection.where(field, '==', value).limit(1).get()
-  if (snapshot.empty) return null
-  const doc = snapshot.docs[0]
-  return { id: doc.id, ...doc.data() }
 }
 
 const findById = async (id) => {
@@ -33,6 +24,7 @@ const findById = async (id) => {
 const create = async (data) => {
   const now = new Date().toISOString()
   const docData = { ...defaults, ...data, createdAt: now, updatedAt: now }
+  if (!docData.occurredAt) docData.occurredAt = now
   const ref = await collection.add(docData)
   return { id: ref.id, ...docData }
 }
@@ -48,9 +40,14 @@ const remove = async (id) => {
   return { success: true }
 }
 
-const findAll = async () => {
-  const snapshot = await collection.orderBy('createdAt', 'desc').get()
-  return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+const findAll = async ({ userId, storeId } = {}) => {
+  let q = collection
+  if (userId) q = q.where('userId', '==', userId)
+  if (storeId) q = q.where('storeId', '==', storeId)
+  const snapshot = await q.get()
+  return snapshot.docs
+    .map(doc => ({ id: doc.id, ...doc.data() }))
+    .sort((a, b) => (b.occurredAt || '').localeCompare(a.occurredAt || ''))
 }
 
-module.exports = { collection, defaults, findOne, findById, create, update, remove, findAll }
+module.exports = { collection, defaults, findById, create, update, remove, findAll }

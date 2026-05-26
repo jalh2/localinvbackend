@@ -1,16 +1,25 @@
 const ProductModel = require('../models/productModel')
 const StoreModel = require('../models/storeModel')
 const PurchaseModel = require('../models/purchaseModel')
+const UserModel = require('../models/userModel')
 const { isCurrency } = require('../utils/currency')
 
 const isAdmin = (req) => req.session.user.role === 'admin'
 const ownerId = (req) => req.session.user.id
 
+// Resolve the userId to scope data by: employees use their owner's userId.
+const effectiveOwnerId = async (req) => {
+  if (isAdmin(req)) return null
+  const user = await UserModel.findById(ownerId(req))
+  if (user && user.storeRole === 'employee' && user.ownerUserId) return user.ownerUserId
+  return ownerId(req)
+}
+
 const listProducts = async (req, res) => {
   try {
     const filter = {}
     if (req.query.storeId) filter.storeId = req.query.storeId
-    filter.userId = isAdmin(req) && req.query.userId ? req.query.userId : ownerId(req)
+    filter.userId = isAdmin(req) && req.query.userId ? req.query.userId : await effectiveOwnerId(req)
     const products = await ProductModel.findAll(filter)
     res.json(products)
   } catch (e) {
@@ -23,7 +32,7 @@ const getProduct = async (req, res) => {
   try {
     const product = await ProductModel.findById(req.params.id)
     if (!product) return res.status(404).json({ message: 'Product not found' })
-    if (!isAdmin(req) && product.userId !== ownerId(req)) return res.status(403).json({ message: 'Forbidden' })
+    if (!isAdmin(req) && product.userId !== await effectiveOwnerId(req)) return res.status(403).json({ message: 'Forbidden' })
     res.json(product)
   } catch (e) {
     res.status(500).json({ message: 'Server error' })
@@ -45,7 +54,7 @@ const createProduct = async (req, res) => {
 
     const store = await StoreModel.findById(storeId)
     if (!store) return res.status(404).json({ message: 'Store not found' })
-    if (!isAdmin(req) && store.userId !== ownerId(req)) return res.status(403).json({ message: 'Forbidden' })
+    if (!isAdmin(req) && store.userId !== await effectiveOwnerId(req)) return res.status(403).json({ message: 'Forbidden' })
 
     const buyCur = buyingCurrency || 'LRD'
     const sellCur = sellingCurrency || buyCur
@@ -72,6 +81,7 @@ const createProduct = async (req, res) => {
 
     const product = await ProductModel.create({
       userId: store.userId,
+      createdByUserId: ownerId(req),
       storeId,
       name,
       description: description || '',
@@ -119,7 +129,7 @@ const updateProduct = async (req, res) => {
   try {
     const existing = await ProductModel.findById(req.params.id)
     if (!existing) return res.status(404).json({ message: 'Product not found' })
-    if (!isAdmin(req) && existing.userId !== ownerId(req)) return res.status(403).json({ message: 'Forbidden' })
+    if (!isAdmin(req) && existing.userId !== await effectiveOwnerId(req)) return res.status(403).json({ message: 'Forbidden' })
 
     const allowed = ['name', 'description', 'image', 'buyingPrice', 'buyingCurrency', 'sellingPrice', 'sellingCurrency', 'lowStockThreshold', 'currentQuantity']
     const data = {}
@@ -141,7 +151,7 @@ const deleteProduct = async (req, res) => {
   try {
     const existing = await ProductModel.findById(req.params.id)
     if (!existing) return res.status(404).json({ message: 'Product not found' })
-    if (!isAdmin(req) && existing.userId !== ownerId(req)) return res.status(403).json({ message: 'Forbidden' })
+    if (!isAdmin(req) && existing.userId !== await effectiveOwnerId(req)) return res.status(403).json({ message: 'Forbidden' })
     await ProductModel.remove(req.params.id)
     res.json({ success: true })
   } catch (e) {

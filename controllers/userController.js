@@ -11,9 +11,20 @@ const sanitize = (user) => {
 
 const register = async (req, res) => {
   try {
-    const { username, password, displayName, phone, storeName, storeLocation, storeDescription } = req.body
+    const { username, password, displayName, phone, storeName, storeLocation, storeDescription, storeRole, ownerUserId } = req.body
     if (!username || !password) return res.status(400).json({ message: 'Username and password required' })
-    if (!storeName || !storeName.trim()) return res.status(400).json({ message: 'Store name is required' })
+
+    const resolvedStoreRole = storeRole === 'employee' ? 'employee' : 'owner'
+
+    if (resolvedStoreRole === 'owner') {
+      if (!storeName || !storeName.trim()) return res.status(400).json({ message: 'Store name is required' })
+    } else {
+      if (!ownerUserId) return res.status(400).json({ message: 'ownerUserId is required for employees' })
+      const owner = await UserModel.findById(ownerUserId)
+      if (!owner || owner.role !== 'user' || owner.storeRole !== 'owner') {
+        return res.status(400).json({ message: 'Invalid owner account' })
+      }
+    }
 
     const existing = await UserModel.findOne('username', username)
     if (existing) return res.status(400).json({ message: 'Username already exists' })
@@ -22,19 +33,23 @@ const register = async (req, res) => {
       username,
       password: hashPassword(password),
       role: 'user',
+      storeRole: resolvedStoreRole,
+      ownerUserId: resolvedStoreRole === 'employee' ? ownerUserId : null,
       displayName: displayName || username,
       phone: phone || '',
       isActive: true
     })
 
-    await StoreModel.create({
-      userId: user.id,
-      name: storeName.trim(),
-      location: storeLocation || '',
-      description: storeDescription || ''
-    })
+    if (resolvedStoreRole === 'owner') {
+      await StoreModel.create({
+        userId: user.id,
+        name: storeName.trim(),
+        location: storeLocation || '',
+        description: storeDescription || ''
+      })
+    }
 
-    req.session.user = { id: user.id, username: user.username, role: user.role }
+    req.session.user = { id: user.id, username: user.username, role: user.role, storeRole: user.storeRole }
     res.status(201).json(sanitize(user))
   } catch (e) {
     console.error('register error:', e)
@@ -53,7 +68,7 @@ const login = async (req, res) => {
     const valid = comparePassword(password, user.password)
     if (!valid) return res.status(401).json({ message: 'Invalid credentials' })
 
-    req.session.user = { id: user.id, username: user.username, role: user.role }
+    req.session.user = { id: user.id, username: user.username, role: user.role, storeRole: user.storeRole || 'owner' }
     res.json(sanitize(user))
   } catch (e) {
     console.error('login error:', e)

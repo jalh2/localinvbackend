@@ -2,6 +2,7 @@ const UserModel = require('../models/userModel')
 const ProductModel = require('../models/productModel')
 const PurchaseModel = require('../models/purchaseModel')
 const SaleModel = require('../models/saleModel')
+const ExpenseModel = require('../models/expenseModel')
 const { convert, isCurrency } = require('../utils/currency')
 const { buildDateRange, inRange, bucketKey } = require('../utils/dateRange')
 
@@ -9,7 +10,11 @@ const isAdmin = (req) => req.session.user.role === 'admin'
 const round2 = n => Math.round(n * 100) / 100
 
 const resolveContext = async (req) => {
-  const targetUserId = isAdmin(req) && req.query.userId ? req.query.userId : req.session.user.id
+  let targetUserId = isAdmin(req) && req.query.userId ? req.query.userId : req.session.user.id
+  const reqUser = await UserModel.findById(req.session.user.id)
+  if (reqUser && reqUser.storeRole === 'employee' && reqUser.ownerUserId && !isAdmin(req)) {
+    targetUserId = reqUser.ownerUserId
+  }
   const user = await UserModel.findById(targetUserId)
   if (!user) return null
   const display = req.query.currency && isCurrency(req.query.currency) ? req.query.currency : user.baseCurrency || 'LRD'
@@ -31,14 +36,16 @@ const overview = async (req, res) => {
     const { fromISO, toISO } = buildDateRange(req.query)
     const storeId = req.query.storeId
 
-    const [products, purchases, sales] = await Promise.all([
+    const [products, purchases, sales, expenses] = await Promise.all([
       ProductModel.findAll({ userId: ctx.userId, ...(storeId ? { storeId } : {}) }),
       PurchaseModel.findAll({ userId: ctx.userId, ...(storeId ? { storeId } : {}) }),
-      SaleModel.findAll({ userId: ctx.userId, ...(storeId ? { storeId } : {}) })
+      SaleModel.findAll({ userId: ctx.userId, ...(storeId ? { storeId } : {}) }),
+      ExpenseModel.findAll({ userId: ctx.userId, ...(storeId ? { storeId } : {}) })
     ])
 
     const purchasesInRange = filterByStoreAndDate(purchases, storeId, fromISO, toISO)
     const salesInRange = filterByStoreAndDate(sales, storeId, fromISO, toISO)
+    const expensesInRange = filterByStoreAndDate(expenses, storeId, fromISO, toISO)
 
     let inventoryUnits = 0
     let inventoryCostValue = 0
@@ -63,7 +70,11 @@ const overview = async (req, res) => {
       totalRevenue += convert((s.unitSellingPrice || 0) * (s.quantity || 0), s.sellingCurrency || 'LRD', ctx.displayCurrency, ctx.rate)
       totalCogs += convert((s.unitBuyingPrice || 0) * (s.quantity || 0), s.buyingCurrency || 'LRD', ctx.displayCurrency, ctx.rate)
     }
-    const totalProfit = totalRevenue - totalCogs
+    let totalExpenses = 0
+    for (const ex of expensesInRange) {
+      totalExpenses += convert(ex.amount || 0, ex.currency || 'LRD', ctx.displayCurrency, ctx.rate)
+    }
+    const totalProfit = totalRevenue - totalCogs - totalExpenses
 
     res.json({
       currency: ctx.displayCurrency,
@@ -74,6 +85,7 @@ const overview = async (req, res) => {
       totalSpent: round2(totalSpent),
       totalRevenue: round2(totalRevenue),
       totalCogs: round2(totalCogs),
+      totalExpenses: round2(totalExpenses),
       totalProfit: round2(totalProfit),
       totalUnitsSold,
       productCount: products.length

@@ -1,15 +1,23 @@
 const PurchaseModel = require('../models/purchaseModel')
 const ProductModel = require('../models/productModel')
+const UserModel = require('../models/userModel')
 const { isCurrency } = require('../utils/currency')
 const { buildDateRange, inRange } = require('../utils/dateRange')
 
 const isAdmin = (req) => req.session.user.role === 'admin'
 const ownerId = (req) => req.session.user.id
 
+const effectiveOwnerId = async (req) => {
+  if (isAdmin(req)) return null
+  const user = await UserModel.findById(ownerId(req))
+  if (user && user.storeRole === 'employee' && user.ownerUserId) return user.ownerUserId
+  return ownerId(req)
+}
+
 const listPurchases = async (req, res) => {
   try {
     const filter = {
-      userId: isAdmin(req) && req.query.userId ? req.query.userId : ownerId(req)
+      userId: isAdmin(req) && req.query.userId ? req.query.userId : await effectiveOwnerId(req)
     }
     if (req.query.storeId) filter.storeId = req.query.storeId
     if (req.query.productId) filter.productId = req.query.productId
@@ -27,7 +35,7 @@ const getPurchase = async (req, res) => {
   try {
     const item = await PurchaseModel.findById(req.params.id)
     if (!item) return res.status(404).json({ message: 'Purchase not found' })
-    if (!isAdmin(req) && item.userId !== ownerId(req)) return res.status(403).json({ message: 'Forbidden' })
+    if (!isAdmin(req) && item.userId !== await effectiveOwnerId(req)) return res.status(403).json({ message: 'Forbidden' })
     res.json(item)
   } catch (e) {
     res.status(500).json({ message: 'Server error' })
@@ -43,7 +51,7 @@ const createPurchase = async (req, res) => {
 
     const product = await ProductModel.findById(productId)
     if (!product) return res.status(404).json({ message: 'Product not found' })
-    if (!isAdmin(req) && product.userId !== ownerId(req)) return res.status(403).json({ message: 'Forbidden' })
+    if (!isAdmin(req) && product.userId !== await effectiveOwnerId(req)) return res.status(403).json({ message: 'Forbidden' })
 
     const cur = currency || product.buyingCurrency || 'LRD'
     if (!isCurrency(cur)) return res.status(400).json({ message: 'Invalid currency' })
@@ -87,7 +95,7 @@ const updatePurchase = async (req, res) => {
   try {
     const existing = await PurchaseModel.findById(req.params.id)
     if (!existing) return res.status(404).json({ message: 'Purchase not found' })
-    if (!isAdmin(req) && existing.userId !== ownerId(req)) return res.status(403).json({ message: 'Forbidden' })
+    if (!isAdmin(req) && existing.userId !== await effectiveOwnerId(req)) return res.status(403).json({ message: 'Forbidden' })
 
     const allowed = ['quantity', 'unitCost', 'totalCost', 'currency', 'note', 'occurredAt']
     const data = {}
@@ -118,7 +126,7 @@ const deletePurchase = async (req, res) => {
   try {
     const existing = await PurchaseModel.findById(req.params.id)
     if (!existing) return res.status(404).json({ message: 'Purchase not found' })
-    if (!isAdmin(req) && existing.userId !== ownerId(req)) return res.status(403).json({ message: 'Forbidden' })
+    if (!isAdmin(req) && existing.userId !== await effectiveOwnerId(req)) return res.status(403).json({ message: 'Forbidden' })
     await ProductModel.adjustQuantity(existing.productId, -existing.quantity)
     await PurchaseModel.remove(req.params.id)
     res.json({ success: true })

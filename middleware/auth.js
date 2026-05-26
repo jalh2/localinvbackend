@@ -36,4 +36,18 @@ const requireRole = () => (req, res, next) => {
   next()
 }
 
-module.exports = { requireAuth, requireRole }
+// Blocks employees from performing destructive operations.
+// storeRole is sent as the x-store-role header (or falls back to 'owner').
+const requireNotEmployee = (req, res, next) => {
+  ensureIdentity(req)
+  const storeRole =
+    req.header('x-store-role') ||
+    (req.session && req.session.user && req.session.user.storeRole) ||
+    'owner'
+  if (storeRole === 'employee') {
+    return res.status(403).json({ message: 'Employees are not allowed to delete records.' })
+  }
+  next()
+}
+
+module.exports = { requireAuth, requireRole, requireNotEmployee }

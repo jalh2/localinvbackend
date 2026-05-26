@@ -1,13 +1,21 @@
 const StoreModel = require('../models/storeModel')
+const UserModel = require('../models/userModel')
 
 const isAdmin = (req) => req.session.user.role === 'admin'
 const ownerId = (req) => req.session.user.id
+
+const effectiveOwnerId = async (req) => {
+  if (isAdmin(req)) return null
+  const user = await UserModel.findById(ownerId(req))
+  if (user && user.storeRole === 'employee' && user.ownerUserId) return user.ownerUserId
+  return ownerId(req)
+}
 
 const listStores = async (req, res) => {
   try {
     const filter = isAdmin(req) && req.query.userId
       ? { userId: req.query.userId }
-      : { userId: ownerId(req) }
+      : { userId: await effectiveOwnerId(req) }
     const stores = await StoreModel.findAll(filter)
     res.json(stores)
   } catch (e) {
@@ -19,7 +27,7 @@ const getStore = async (req, res) => {
   try {
     const store = await StoreModel.findById(req.params.id)
     if (!store) return res.status(404).json({ message: 'Store not found' })
-    if (!isAdmin(req) && store.userId !== ownerId(req)) return res.status(403).json({ message: 'Forbidden' })
+    if (!isAdmin(req) && store.userId !== await effectiveOwnerId(req)) return res.status(403).json({ message: 'Forbidden' })
     res.json(store)
   } catch (e) {
     res.status(500).json({ message: 'Server error' })
@@ -30,10 +38,10 @@ const createStore = async (req, res) => {
   try {
     const { name, description, location } = req.body
     if (!name) return res.status(400).json({ message: 'Name is required' })
-    const existingStores = await StoreModel.findAll({ userId: ownerId(req) })
+    const existingStores = await StoreModel.findAll({ userId: await effectiveOwnerId(req) })
     if (existingStores.length > 0) return res.status(400).json({ message: 'This user already has a store' })
     const store = await StoreModel.create({
-      userId: ownerId(req),
+      userId: await effectiveOwnerId(req),
       name,
       description: description || '',
       location: location || ''
@@ -49,7 +57,7 @@ const updateStore = async (req, res) => {
   try {
     const existing = await StoreModel.findById(req.params.id)
     if (!existing) return res.status(404).json({ message: 'Store not found' })
-    if (!isAdmin(req) && existing.userId !== ownerId(req)) return res.status(403).json({ message: 'Forbidden' })
+    if (!isAdmin(req) && existing.userId !== await effectiveOwnerId(req)) return res.status(403).json({ message: 'Forbidden' })
 
     const { name, description, location } = req.body
     const data = {}
@@ -68,7 +76,7 @@ const deleteStore = async (req, res) => {
   try {
     const existing = await StoreModel.findById(req.params.id)
     if (!existing) return res.status(404).json({ message: 'Store not found' })
-    if (!isAdmin(req) && existing.userId !== ownerId(req)) return res.status(403).json({ message: 'Forbidden' })
+    if (!isAdmin(req) && existing.userId !== await effectiveOwnerId(req)) return res.status(403).json({ message: 'Forbidden' })
     await StoreModel.remove(req.params.id)
     res.json({ success: true })
   } catch (e) {
