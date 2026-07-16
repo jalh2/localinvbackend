@@ -21,13 +21,16 @@ const resolveContext = async (req) => {
   return { userId: targetUserId, rate: user.exchangeRateUsdToLrd || 1, displayCurrency: display }
 }
 
-const filterByStoreAndDate = (items, storeId, fromISO, toISO) => {
+const filterByStoreAndDate = (items, storeId, fromISO, toISO, dateForItem = it => it.occurredAt) => {
   return items.filter(it => {
     if (storeId && it.storeId !== storeId) return false
-    if ((fromISO || toISO) && !inRange(it.occurredAt, fromISO, toISO)) return false
+    if ((fromISO || toISO) && !inRange(dateForItem(it), fromISO, toISO)) return false
     return true
   })
 }
+
+const isSalePaid = sale => sale.paymentType !== 'credit' || sale.paymentStatus === 'paid'
+const saleFinancialDate = sale => sale.paymentType === 'credit' ? (sale.paidAt || sale.occurredAt) : sale.occurredAt
 
 const overview = async (req, res) => {
   try {
@@ -45,6 +48,7 @@ const overview = async (req, res) => {
 
     const purchasesInRange = filterByStoreAndDate(purchases, storeId, fromISO, toISO)
     const salesInRange = filterByStoreAndDate(sales, storeId, fromISO, toISO)
+    const paidSalesInRange = filterByStoreAndDate(sales.filter(isSalePaid), storeId, fromISO, toISO, saleFinancialDate)
     const expensesInRange = filterByStoreAndDate(expenses, storeId, fromISO, toISO)
 
     let inventoryUnits = 0
@@ -67,6 +71,8 @@ const overview = async (req, res) => {
     let totalUnitsSold = 0
     for (const s of salesInRange) {
       totalUnitsSold += s.quantity || 0
+    }
+    for (const s of paidSalesInRange) {
       totalRevenue += convert((s.unitSellingPrice || 0) * (s.quantity || 0), s.sellingCurrency || 'LRD', ctx.displayCurrency, ctx.rate)
       totalCogs += convert((s.unitBuyingPrice || 0) * (s.quantity || 0), s.buyingCurrency || 'LRD', ctx.displayCurrency, ctx.rate)
     }
@@ -111,6 +117,7 @@ const timeseries = async (req, res) => {
 
     const purchasesInRange = filterByStoreAndDate(purchases, storeId, fromISO, toISO)
     const salesInRange = filterByStoreAndDate(sales, storeId, fromISO, toISO)
+    const paidSalesInRange = filterByStoreAndDate(sales.filter(isSalePaid), storeId, fromISO, toISO, saleFinancialDate)
 
     const buckets = {}
     const ensure = key => {
@@ -124,14 +131,16 @@ const timeseries = async (req, res) => {
       b.spent += convert(pu.totalCost || 0, pu.currency || 'LRD', ctx.displayCurrency, ctx.rate)
     }
     for (const s of salesInRange) {
-      const k = bucketKey(s.occurredAt, bucket)
-      const b = ensure(k)
+      const b = ensure(bucketKey(s.occurredAt, bucket))
+      b.unitsSold += s.quantity || 0
+    }
+    for (const s of paidSalesInRange) {
+      const b = ensure(bucketKey(saleFinancialDate(s), bucket))
       const rev = convert((s.unitSellingPrice || 0) * (s.quantity || 0), s.sellingCurrency || 'LRD', ctx.displayCurrency, ctx.rate)
       const cogs = convert((s.unitBuyingPrice || 0) * (s.quantity || 0), s.buyingCurrency || 'LRD', ctx.displayCurrency, ctx.rate)
       b.revenue += rev
       b.cogs += cogs
       b.profit += rev - cogs
-      b.unitsSold += s.quantity || 0
     }
 
     const series = Object.values(buckets)
@@ -165,6 +174,7 @@ const byProduct = async (req, res) => {
     ])
 
     const salesInRange = filterByStoreAndDate(sales, storeId, fromISO, toISO)
+    const paidSalesInRange = filterByStoreAndDate(sales.filter(isSalePaid), storeId, fromISO, toISO, saleFinancialDate)
     const byId = {}
     for (const p of products) {
       byId[p.id] = {
@@ -182,10 +192,13 @@ const byProduct = async (req, res) => {
     }
     for (const s of salesInRange) {
       const row = byId[s.productId]
+      if (row) row.unitsSold += s.quantity || 0
+    }
+    for (const s of paidSalesInRange) {
+      const row = byId[s.productId]
       if (!row) continue
       const rev = convert((s.unitSellingPrice || 0) * (s.quantity || 0), s.sellingCurrency || 'LRD', ctx.displayCurrency, ctx.rate)
       const cogs = convert((s.unitBuyingPrice || 0) * (s.quantity || 0), s.buyingCurrency || 'LRD', ctx.displayCurrency, ctx.rate)
-      row.unitsSold += s.quantity || 0
       row.revenue += rev
       row.cogs += cogs
       row.profit += rev - cogs
