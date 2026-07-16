@@ -12,6 +12,10 @@ const defaults = {
   unitBuyingPrice: 0,
   buyingCurrency: 'LRD',
   note: '',
+  paymentType: 'cash',
+  customerName: '',
+  paymentStatus: 'paid',
+  paidAt: null,
   occurredAt: null,
   createdAt: null,
   updatedAt: null

@@ -44,8 +44,13 @@ const getSale = async (req, res) => {
 
 const createSale = async (req, res) => {
   try {
-    const { productId, quantity, unitSellingPrice, sellingCurrency, note, occurredAt } = req.body
+    const { productId, quantity, unitSellingPrice, sellingCurrency, note, occurredAt, paymentType, customerName } = req.body
     if (!productId) return res.status(400).json({ message: 'productId is required' })
+    const normalizedPaymentType = paymentType === 'credit' ? 'credit' : 'cash'
+    const normalizedCustomerName = typeof customerName === 'string' ? customerName.trim() : ''
+    if (normalizedPaymentType === 'credit' && !normalizedCustomerName) {
+      return res.status(400).json({ message: 'Customer name is required for credit sales' })
+    }
     const qty = Number(quantity)
     if (!isFinite(qty) || qty <= 0) return res.status(400).json({ message: 'Invalid quantity' })
 
@@ -73,6 +78,10 @@ const createSale = async (req, res) => {
       unitBuyingPrice: Number(product.buyingPrice || 0),
       buyingCurrency: product.buyingCurrency || 'LRD',
       note: note || '',
+      paymentType: normalizedPaymentType,
+      customerName: normalizedPaymentType === 'credit' ? normalizedCustomerName : '',
+      paymentStatus: normalizedPaymentType === 'credit' ? 'unpaid' : 'paid',
+      paidAt: normalizedPaymentType === 'credit' ? null : (occurredAt || new Date().toISOString()),
       occurredAt: occurredAt || null
     })
 
@@ -90,11 +99,20 @@ const updateSale = async (req, res) => {
     if (!existing) return res.status(404).json({ message: 'Sale not found' })
     if (!isAdmin(req) && existing.userId !== await effectiveOwnerId(req)) return res.status(403).json({ message: 'Forbidden' })
 
-    const allowed = ['quantity', 'unitSellingPrice', 'sellingCurrency', 'unitBuyingPrice', 'buyingCurrency', 'note', 'occurredAt']
+    const allowed = ['quantity', 'unitSellingPrice', 'sellingCurrency', 'unitBuyingPrice', 'buyingCurrency', 'note', 'occurredAt', 'customerName', 'paymentStatus', 'paidAt']
     const data = {}
     for (const key of allowed) if (req.body[key] !== undefined) data[key] = req.body[key]
     if (data.sellingCurrency && !isCurrency(data.sellingCurrency)) return res.status(400).json({ message: 'Invalid sellingCurrency' })
     if (data.buyingCurrency && !isCurrency(data.buyingCurrency)) return res.status(400).json({ message: 'Invalid buyingCurrency' })
+    if (data.customerName !== undefined) {
+      data.customerName = typeof data.customerName === 'string' ? data.customerName.trim() : ''
+      if (existing.paymentType === 'credit' && !data.customerName) return res.status(400).json({ message: 'Customer name is required for credit sales' })
+    }
+    if (data.paymentStatus !== undefined) {
+      if (existing.paymentType !== 'credit') return res.status(400).json({ message: 'Only credit sales have a payment status' })
+      if (data.paymentStatus !== 'paid') return res.status(400).json({ message: 'Invalid paymentStatus' })
+      data.paidAt = data.paidAt || new Date().toISOString()
+    }
 
     if (data.quantity !== undefined) {
       const newQty = Number(data.quantity)
