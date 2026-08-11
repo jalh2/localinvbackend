@@ -110,18 +110,20 @@ const timeseries = async (req, res) => {
     const { fromISO, toISO } = buildDateRange(req.query)
     const storeId = req.query.storeId
 
-    const [purchases, sales] = await Promise.all([
+    const [purchases, sales, expenses] = await Promise.all([
       PurchaseModel.findAll({ userId: ctx.userId, ...(storeId ? { storeId } : {}) }),
-      SaleModel.findAll({ userId: ctx.userId, ...(storeId ? { storeId } : {}) })
+      SaleModel.findAll({ userId: ctx.userId, ...(storeId ? { storeId } : {}) }),
+      ExpenseModel.findAll({ userId: ctx.userId, ...(storeId ? { storeId } : {}) })
     ])
 
     const purchasesInRange = filterByStoreAndDate(purchases, storeId, fromISO, toISO)
     const salesInRange = filterByStoreAndDate(sales, storeId, fromISO, toISO)
+    const expensesInRange = filterByStoreAndDate(expenses, storeId, fromISO, toISO)
     const paidSalesInRange = filterByStoreAndDate(sales.filter(isSalePaid), storeId, fromISO, toISO, saleFinancialDate)
 
     const buckets = {}
     const ensure = key => {
-      if (!buckets[key]) buckets[key] = { key, spent: 0, revenue: 0, cogs: 0, profit: 0, unitsSold: 0 }
+      if (!buckets[key]) buckets[key] = { key, spent: 0, revenue: 0, expenses: 0, cogs: 0, profit: 0, unitsSold: 0 }
       return buckets[key]
     }
 
@@ -129,6 +131,12 @@ const timeseries = async (req, res) => {
       const k = bucketKey(pu.occurredAt, bucket)
       const b = ensure(k)
       b.spent += convert(pu.totalCost || 0, pu.currency || 'LRD', ctx.displayCurrency, ctx.rate)
+    }
+    for (const ex of expensesInRange) {
+      const b = ensure(bucketKey(ex.occurredAt, bucket))
+      const amount = convert(ex.amount || 0, ex.currency || 'LRD', ctx.displayCurrency, ctx.rate)
+      b.expenses += amount
+      b.profit -= amount
     }
     for (const s of salesInRange) {
       const b = ensure(bucketKey(s.occurredAt, bucket))
@@ -148,6 +156,7 @@ const timeseries = async (req, res) => {
         key: b.key,
         spent: round2(b.spent),
         revenue: round2(b.revenue),
+        expenses: round2(b.expenses),
         cogs: round2(b.cogs),
         profit: round2(b.profit),
         unitsSold: b.unitsSold
