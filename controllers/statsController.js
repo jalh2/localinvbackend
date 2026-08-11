@@ -81,6 +81,16 @@ const overview = async (req, res) => {
       totalExpenses += convert(ex.amount || 0, ex.currency || 'LRD', ctx.displayCurrency, ctx.rate)
     }
     const totalProfit = totalRevenue - totalCogs - totalExpenses
+    const expectedProfit = inventoryRetailValue - inventoryCostValue
+
+    const pendingSales = sales.filter(s => s.paymentType === 'credit' && s.paymentStatus !== 'paid')
+    let pendingRevenue = 0
+    let pendingCogs = 0
+    for (const s of pendingSales) {
+      pendingRevenue += convert((s.unitSellingPrice || 0) * (s.quantity || 0), s.sellingCurrency || 'LRD', ctx.displayCurrency, ctx.rate)
+      pendingCogs += convert((s.unitBuyingPrice || 0) * (s.quantity || 0), s.buyingCurrency || 'LRD', ctx.displayCurrency, ctx.rate)
+    }
+    const pendingProfit = pendingRevenue - pendingCogs
 
     res.json({
       currency: ctx.displayCurrency,
@@ -88,13 +98,17 @@ const overview = async (req, res) => {
       inventoryUnits,
       inventoryCostValue: round2(inventoryCostValue),
       inventoryRetailValue: round2(inventoryRetailValue),
+      expectedProfit: round2(expectedProfit),
       totalSpent: round2(totalSpent),
       totalRevenue: round2(totalRevenue),
       totalCogs: round2(totalCogs),
       totalExpenses: round2(totalExpenses),
       totalProfit: round2(totalProfit),
       totalUnitsSold,
-      productCount: products.length
+      productCount: products.length,
+      pendingRevenue: round2(pendingRevenue),
+      pendingProfit: round2(pendingProfit),
+      pendingCreditCount: pendingSales.length
     })
   } catch (e) {
     console.error('stats overview error:', e)

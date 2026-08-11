@@ -4,7 +4,7 @@ const ProductModel = require('../models/productModel')
 const PurchaseModel = require('../models/purchaseModel')
 const SaleModel = require('../models/saleModel')
 const { hashPassword } = require('../utils/encryption')
-const { isCurrency } = require('../utils/currency')
+const { isCurrency, convert } = require('../utils/currency')
 const { sanitize } = require('./userController')
 
 const listUsers = async (req, res) => {
@@ -108,13 +108,41 @@ const platformOverview = async (req, res) => {
       PurchaseModel.findAll(),
       SaleModel.findAll()
     ])
+    const userMap = new Map(users.map(u => [u.id, u]))
+    const round2 = n => Math.round(n * 100) / 100
+
+    let inventoryExpectedProfit = 0
+    for (const p of products) {
+      const owner = userMap.get(p.userId)
+      const rate = (owner && Number(owner.exchangeRateUsdToLrd)) || 1
+      const cost = convert((p.buyingPrice || 0) * (p.currentQuantity || 0), p.buyingCurrency || 'LRD', 'LRD', rate)
+      const retail = convert((p.sellingPrice || 0) * (p.currentQuantity || 0), p.sellingCurrency || 'LRD', 'LRD', rate)
+      inventoryExpectedProfit += retail - cost
+    }
+
+    const pendingSales = sales.filter(s => s.paymentType === 'credit' && s.paymentStatus !== 'paid')
+    let pendingRevenue = 0
+    let pendingProfit = 0
+    for (const s of pendingSales) {
+      const owner = userMap.get(s.userId)
+      const rate = (owner && Number(owner.exchangeRateUsdToLrd)) || 1
+      const revenue = convert((s.unitSellingPrice || 0) * (s.quantity || 0), s.sellingCurrency || 'LRD', 'LRD', rate)
+      const cogs = convert((s.unitBuyingPrice || 0) * (s.quantity || 0), s.buyingCurrency || 'LRD', 'LRD', rate)
+      pendingRevenue += revenue
+      pendingProfit += revenue - cogs
+    }
+
     res.json({
       userCount: users.length,
       activeUserCount: users.filter(u => u.isActive).length,
       storeCount: stores.length,
       productCount: products.length,
       purchaseCount: purchases.length,
-      saleCount: sales.length
+      saleCount: sales.length,
+      inventoryExpectedProfit: round2(inventoryExpectedProfit),
+      pendingRevenue: round2(pendingRevenue),
+      pendingProfit: round2(pendingProfit),
+      pendingCreditCount: pendingSales.length
     })
   } catch (e) {
     console.error('platformOverview error:', e)
